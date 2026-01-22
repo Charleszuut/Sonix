@@ -56,181 +56,189 @@ class NowPlayingScreen extends ConsumerWidget {
               )
             : false;
 
-        return Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            children: [
-              _BlurredArtworkBackground(artwork: artwork),
-              const _GradientOverlay(),
-              SafeArea(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final maxContentWidth = constraints.maxWidth > 720
-                        ? 480.0
-                        : constraints.maxWidth;
-                    final horizontalPadding = constraints.maxWidth > 720
-                        ? (constraints.maxWidth - maxContentWidth) / 2
-                        : 20.0;
+        return GestureDetector(
+          onVerticalDragUpdate: (details) {
+            if (details.primaryDelta != null && details.primaryDelta! > 12) {
+              Navigator.of(context).maybePop();
+            }
+          },
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              children: [
+                _BlurredArtworkBackground(artwork: artwork),
+                const _GradientOverlay(),
+                SafeArea(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final maxContentWidth = constraints.maxWidth > 720
+                          ? 480.0
+                          : constraints.maxWidth;
+                      final horizontalPadding = constraints.maxWidth > 720
+                          ? (constraints.maxWidth - maxContentWidth) / 2
+                          : 20.0;
 
-                    final isTall = constraints.maxHeight > 760;
+                      final isTall = constraints.maxHeight > 760;
 
-                    return Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: horizontalPadding,
-                        vertical: isTall ? 20 : 12,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _TopBar(
-                            onClose: () => Navigator.of(context).pop(),
-                            onEqualizer: () =>
-                                _showComingSoon(context, 'Sound settings'),
-                            onCast: () =>
-                                _showComingSoon(context, 'Cast to device'),
-                          ),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: ConstrainedBox(
-                                constraints:
-                                    BoxConstraints(maxWidth: maxContentWidth),
-                                child: Column(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.start,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Expanded(
-                                            child: Center(
-                                              child: FractionallySizedBox(
-                                                widthFactor:
-                                                    constraints.maxWidth > 420
-                                                        ? 0.68
-                                                        : 0.78,
-                                                child: Hero(
-                                                  tag: 'now-playing-art',
-                                                  child: _LargeArtwork(
-                                                      artwork: artwork),
+                      return Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: horizontalPadding,
+                          vertical: isTall ? 20 : 12,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _TopBar(
+                              onClose: () => Navigator.of(context).pop(),
+                              onEqualizer: () =>
+                                  _showComingSoon(context, 'Sound settings'),
+                              onCast: () =>
+                                  _showComingSoon(context, 'Cast to device'),
+                            ),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.topCenter,
+                                child: ConstrainedBox(
+                                  constraints:
+                                      BoxConstraints(maxWidth: maxContentWidth),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            Expanded(
+                                              child: Center(
+                                                child: FractionallySizedBox(
+                                                  widthFactor:
+                                                      constraints.maxWidth > 420
+                                                          ? 0.68
+                                                          : 0.78,
+                                                  child: Hero(
+                                                    tag: 'now-playing-art',
+                                                    child: _LargeArtwork(
+                                                        artwork: artwork),
+                                                  ),
                                                 ),
                                               ),
                                             ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              mediaItem.title,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize:
+                                                    constraints.maxWidth > 420
+                                                        ? 20
+                                                        : 18,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              mediaItem.artist ??
+                                                  'Unknown Artist',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize:
+                                                    constraints.maxWidth > 420
+                                                        ? 13
+                                                        : 12,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ActionRow(
+                                              isFavorite: isFavorite,
+                                              onToggleFavorite: () {
+                                                if (songId != null) {
+                                                  ref
+                                                      .read(
+                                                          favoritesControllerProvider
+                                                              .notifier)
+                                                      .toggleFavorite(songId);
+                                                }
+                                              },
+                                              onAddToPlaylist: () {
+                                                final song = currentSong;
+                                                if (song != null) {
+                                                  showAddToPlaylistSheet(
+                                                    context,
+                                                    ref,
+                                                    [song],
+                                                  );
+                                                } else {
+                                                  _showComingSoon(
+                                                    context,
+                                                    'Add to playlist',
+                                                  );
+                                                }
+                                              },
+                                              onQueue: () => _showComingSoon(
+                                                  context, 'Up next queue'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          const SizedBox(height: 12),
+                                          SeekBar(
+                                            duration: duration,
+                                            position: position,
+                                            bufferedPosition: bufferedPosition,
+                                            onChanged: controller.seek,
                                           ),
                                           const SizedBox(height: 12),
-                                          Text(
-                                            mediaItem.title,
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              fontSize:
-                                                  constraints.maxWidth > 420
-                                                      ? 20
-                                                      : 18,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            mediaItem.artist ??
-                                                'Unknown Artist',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              color: AppColors.textSecondary,
-                                              fontSize:
-                                                  constraints.maxWidth > 420
-                                                      ? 13
-                                                      : 12,
-                                            ),
+                                          _TransportControls(
+                                            isPlaying:
+                                                playbackState?.playing ?? false,
+                                            shuffleEnabled: shuffleEnabled,
+                                            loopMode: loopMode,
+                                            onToggleShuffle: () => controller
+                                                .setShuffle(!shuffleEnabled),
+                                            onPrevious: controller.skipPrevious,
+                                            onPlayPause:
+                                                controller.togglePlayPause,
+                                            onNext: controller.skipNext,
+                                            onCycleLoop:
+                                                controller.cycleLoopMode,
                                           ),
                                           const SizedBox(height: 12),
-                                          _ActionRow(
-                                            isFavorite: isFavorite,
-                                            onToggleFavorite: () {
-                                              if (songId != null) {
-                                                ref
-                                                    .read(
-                                                        favoritesControllerProvider
-                                                            .notifier)
-                                                    .toggleFavorite(songId);
-                                              }
-                                            },
-                                            onAddToPlaylist: () {
-                                              final song = currentSong;
-                                              if (song != null) {
-                                                showAddToPlaylistSheet(
-                                                  context,
-                                                  ref,
-                                                  song,
-                                                );
-                                              } else {
-                                                _showComingSoon(
-                                                  context,
-                                                  'Add to playlist',
-                                                );
-                                              }
-                                            },
+                                          _BottomActions(
                                             onQueue: () => _showComingSoon(
-                                                context, 'Up next queue'),
+                                                context, 'Queue manager'),
+                                            onLyrics: () => _showComingSoon(
+                                                context, 'Live lyrics'),
+                                            onShare: () => _showComingSoon(
+                                                context, 'Share track'),
                                           ),
                                         ],
                                       ),
-                                    ),
-                                    Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        const SizedBox(height: 12),
-                                        SeekBar(
-                                          duration: duration,
-                                          position: position,
-                                          bufferedPosition: bufferedPosition,
-                                          onChanged: controller.seek,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        _TransportControls(
-                                          isPlaying:
-                                              playbackState?.playing ?? false,
-                                          shuffleEnabled: shuffleEnabled,
-                                          loopMode: loopMode,
-                                          onToggleShuffle: () => controller
-                                              .setShuffle(!shuffleEnabled),
-                                          onPrevious: controller.skipPrevious,
-                                          onPlayPause:
-                                              controller.togglePlayPause,
-                                          onNext: controller.skipNext,
-                                          onCycleLoop: controller.cycleLoopMode,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        _BottomActions(
-                                          onQueue: () => _showComingSoon(
-                                              context, 'Queue manager'),
-                                          onLyrics: () => _showComingSoon(
-                                              context, 'Live lyrics'),
-                                          onShare: () => _showComingSoon(
-                                              context, 'Share track'),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },

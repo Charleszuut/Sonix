@@ -60,5 +60,15 @@ class PlaylistController extends StateNotifier<AsyncValue<List<Playlist>>> {
     await _load();
   }
 
+  Playlist? findById(String playlistId) {
+    final current = state.value;
+    if (current == null) return null;
+    try {
+      return current.firstWhere((playlist) => playlist.id == playlistId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> refresh() => _load();
 }

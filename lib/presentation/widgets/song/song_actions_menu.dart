@@ -53,7 +53,7 @@ class SongActionsMenu extends ConsumerWidget {
   ) {
     switch (action) {
       case _SongAction.addToPlaylist:
-        showAddToPlaylistSheet(context, ref, song);
+        showAddToPlaylistSheet(context, ref, [song]);
         break;
       case _SongAction.toggleFavorite:
         ref.read(favoritesControllerProvider.notifier).toggleFavorite(song.id);
@@ -80,8 +80,9 @@ enum _SongAction { addToPlaylist, toggleFavorite, delete, details }
 Future<void> showAddToPlaylistSheet(
   BuildContext context,
   WidgetRef ref,
-  Song song,
+  List<Song> songs,
 ) async {
+  if (songs.isEmpty) return;
   await showModalBottomSheet<void>(
     context: context,
     backgroundColor: AppColors.surface,
@@ -101,9 +102,11 @@ Future<void> showAddToPlaylistSheet(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Add to playlist',
-                        style: TextStyle(
+                      Text(
+                        songs.length == 1
+                            ? 'Add to playlist'
+                            : 'Add ${songs.length} tracks',
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
@@ -177,14 +180,18 @@ Future<void> showAddToPlaylistSheet(
                           '${playlist.songIds.length} song${playlist.songIds.length == 1 ? '' : 's'}',
                         ),
                         onTap: () async {
-                          await ref
-                              .read(playlistControllerProvider.notifier)
-                              .addSong(playlist.id, song.id);
+                          final notifier =
+                              ref.read(playlistControllerProvider.notifier);
+                          for (final track in songs) {
+                            await notifier.addSong(playlist.id, track.id);
+                          }
                           Navigator.of(sheetContext).pop();
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
-                                'Added to "${playlist.name}"',
+                                songs.length == 1
+                                    ? 'Added to "${playlist.name}"'
+                                    : 'Added ${songs.length} tracks to "${playlist.name}"',
                               ),
                             ),
                           );

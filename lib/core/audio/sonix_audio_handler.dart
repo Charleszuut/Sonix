@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -8,12 +7,7 @@ class SonixAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   SonixAudioHandler() {
     _player.playbackEventStream.listen(_broadcastState);
-    _player.currentIndexStream.listen((index) {
-      final currentQueue = queue.value;
-      if (index != null && index >= 0 && index < currentQueue.length) {
-        mediaItem.add(currentQueue[index]);
-      }
-    });
+    _player.currentIndexStream.listen(_handlePlayerIndexChange);
     _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
         stop();
@@ -22,42 +16,92 @@ class SonixAudioHandler extends BaseAudioHandler
   }
 
   final AudioPlayer _player = AudioPlayer();
-  final _random = Random();
-  ConcatenatingAudioSource? _playlist;
 
+  final List<int> _historyStack = [];
+  static const int _historyLimit = 100;
+  bool _restoringFromHistory = false;
+  int? _pendingHistoryPlayerIndex;
+  int? _lastPlayerIndex;
+
+  /// Streams exposed to the UI layer.
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
   Stream<LoopMode> get loopModeStream => _player.loopModeStream;
   Stream<bool> get shuffleModeStream => _player.shuffleModeEnabledStream;
 
-  bool get isShuffleEnabled => _player.shuffleModeEnabled;
   LoopMode get loopMode => _player.loopMode;
+  bool get isShuffleEnabled => _player.shuffleModeEnabled;
 
   Future<void> replaceQueue(List<MediaItem> items, {int startIndex = 0}) async {
-    if (items.isEmpty) {
-      return;
-    }
+    if (items.isEmpty) return;
+
+    _historyStack.clear();
+    _restoringFromHistory = false;
+    _pendingHistoryPlayerIndex = null;
+    _lastPlayerIndex = null;
 
     queue.add(items);
-    _playlist = ConcatenatingAudioSource(
-      children:
-          items.map((item) => AudioSource.uri(Uri.parse(item.id))).toList(),
-      useLazyPreparation: true,
-    );
+    final audioSources = items
+        .map((item) => AudioSource.uri(Uri.parse(item.id), tag: item))
+        .toList();
 
     await _player.setAudioSource(
-      _playlist!,
+      ConcatenatingAudioSource(children: audioSources),
       initialIndex: startIndex,
       preload: true,
     );
 
     mediaItem.add(items[startIndex]);
+    _lastPlayerIndex = startIndex;
+  }
+
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    await _player.setShuffleModeEnabled(enabled);
+    _historyStack.clear();
+    _restoringFromHistory = false;
+    _pendingHistoryPlayerIndex = null;
+  }
+
+  Future<void> setLoopMode(LoopMode loopMode) async {
+    await _player.setLoopMode(loopMode);
+  }
+
+  void _handlePlayerIndexChange(int? playerIndex) {
+    if (playerIndex == null) return;
+    final sequence = _player.sequence;
+    if (sequence == null || playerIndex < 0 || playerIndex >= sequence.length) {
+      return;
+    }
+
+    final currentTag = sequence[playerIndex].tag;
+    if (currentTag is MediaItem) {
+      mediaItem.add(currentTag);
+    }
+
+    if (_restoringFromHistory) {
+      if (_pendingHistoryPlayerIndex == playerIndex) {
+        _restoringFromHistory = false;
+        _pendingHistoryPlayerIndex = null;
+      }
+    } else {
+      final previousPlayerIndex = _lastPlayerIndex;
+      if (previousPlayerIndex != null && previousPlayerIndex != playerIndex) {
+        if (_historyStack.isEmpty ||
+            _historyStack.last != previousPlayerIndex) {
+          _historyStack.add(previousPlayerIndex);
+          if (_historyStack.length > _historyLimit) {
+            _historyStack.removeAt(0);
+          }
+        }
+      }
+    }
+
+    _lastPlayerIndex = playerIndex;
   }
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
     final queueIndex = event.currentIndex;
-
     playbackState.add(
       PlaybackState(
         controls: [
@@ -112,16 +156,6 @@ class SonixAudioHandler extends BaseAudioHandler
     }
   }
 
-  Future<void> setShuffleModeEnabled(bool enabled) async {
-    await _player.setShuffleModeEnabled(enabled);
-    _broadcastState(_player.playbackEvent);
-  }
-
-  Future<void> setLoopMode(LoopMode loopMode) async {
-    await _player.setLoopMode(loopMode);
-    _broadcastState(_player.playbackEvent);
-  }
-
   @override
   Future<void> play() => _player.play();
 
@@ -139,73 +173,49 @@ class SonixAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToNext() async {
-    if (_player.shuffleModeEnabled) {
-      await _playRandomTrack();
-      return;
-    }
-
-    final previousLoopMode = _player.loopMode;
-    if (previousLoopMode == LoopMode.one) {
-      await _player.setLoopMode(LoopMode.off);
-    }
-
     await _player.seekToNext();
-
-    if (previousLoopMode != _player.loopMode) {
-      await _player.setLoopMode(previousLoopMode);
-    }
   }
 
   @override
   Future<void> skipToPrevious() async {
-    if (_player.shuffleModeEnabled) {
-      await _playRandomTrack();
+    if (_historyStack.isNotEmpty) {
+      final targetPlayerIndex = _historyStack.removeLast();
+      _restoringFromHistory = true;
+      _pendingHistoryPlayerIndex = targetPlayerIndex;
+      await _seekToPlayerIndex(targetPlayerIndex);
       return;
-    }
-
-    final previousLoopMode = _player.loopMode;
-    if (previousLoopMode == LoopMode.one) {
-      await _player.setLoopMode(LoopMode.off);
     }
 
     await _player.seekToPrevious();
-
-    if (previousLoopMode != _player.loopMode) {
-      await _player.setLoopMode(previousLoopMode);
-    }
   }
 
-  Future<void> _playRandomTrack() async {
-    final total = _playlist?.length ?? 0;
-    if (total <= 1) {
-      return;
-    }
-
-    final currentIndex = _player.currentIndex ?? 0;
-    var randomIndex = _random.nextInt(total);
-    if (total > 1) {
-      while (randomIndex == currentIndex) {
-        randomIndex = _random.nextInt(total);
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    if (index < 0 || index >= queue.value.length) return;
+    final currentIndex = _player.currentIndex;
+    if (currentIndex != null) {
+      _historyStack.add(currentIndex);
+      if (_historyStack.length > _historyLimit) {
+        _historyStack.removeAt(0);
       }
     }
 
-    await _player.seek(Duration.zero, index: randomIndex);
-    if (_player.playing) {
-      await _player.play();
-    }
+    final playerIndex = _player.shuffleModeEnabled
+        ? _player.shuffleIndices?.indexOf(index) ?? index
+        : index;
+
+    _restoringFromHistory = true;
+    _pendingHistoryPlayerIndex = playerIndex;
+    await _seekToPlayerIndex(playerIndex);
   }
 
-  Future<void> playFromQueueIndex(int index) async {
-    if (_playlist == null) return;
-    final total = _playlist!.length;
-    if (index < 0 || index >= total) return;
-
+  Future<void> _seekToPlayerIndex(int playerIndex) async {
     final previousLoopMode = _player.loopMode;
     if (previousLoopMode == LoopMode.one) {
       await _player.setLoopMode(LoopMode.off);
     }
 
-    await _player.seek(Duration.zero, index: index);
+    await _player.seek(Duration.zero, index: playerIndex);
     if (_player.playing) {
       await _player.play();
     }

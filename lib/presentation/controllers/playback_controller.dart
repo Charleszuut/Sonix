@@ -22,35 +22,17 @@ class PlaybackController {
         final songId = item?.extras?['songId'] as int?;
         if (songId == null) return;
 
-        if (_currentSongId == songId) {
-          return;
-        }
-
-        if (!_restoringHistory && _currentSongId != null) {
-          _historyStack.add(_currentSongId!);
-          if (_historyStack.length > _historyLimit) {
-            _historyStack.removeRange(0, _historyStack.length - _historyLimit);
-          }
-        }
-
-        _currentSongId = songId;
-        unawaited(_handleSongStart(songId));
+        unawaited(_recordSongStart(songId));
       });
     }, fireImmediately: true);
   }
 
   final Ref _ref;
-  final List<int> _historyStack = [];
-  int? _currentSongId;
-  bool _restoringHistory = false;
-  static const int _historyLimit = 100;
 
   Future<void> playSongs(List<Song> songs, {int startIndex = 0}) async {
     if (songs.isEmpty) return;
     final handler = _ref.read(audioHandlerProvider);
     final mediaItems = songs.map(MediaItemMapper.fromSong).toList();
-    _historyStack.clear();
-    _currentSongId = null;
     await handler.replaceQueue(mediaItems, startIndex: startIndex);
     await handler.play();
   }
@@ -77,29 +59,15 @@ class PlaybackController {
   }
 
   Future<void> skipPrevious() async {
-    final handler = _ref.read(audioHandlerProvider);
-    final playbackState = await handler.playbackState.first;
-    final shuffleEnabled =
-        playbackState.shuffleMode == AudioServiceShuffleMode.all;
-    if (shuffleEnabled && _historyStack.isNotEmpty) {
-      final previousSongId = _historyStack.removeLast();
-      _restoringHistory = true;
-      await _jumpToSong(previousSongId);
-      _restoringHistory = false;
-    } else {
-      await handler.skipToPrevious();
-    }
+    await _ref.read(audioHandlerProvider).skipToPrevious();
   }
 
   Future<void> seek(Duration position) =>
       _ref.read(audioHandlerProvider).seek(position);
 
-  Future<void> setShuffle(bool enabled) =>
-      _ref.read(audioHandlerProvider).setShuffleModeEnabled(enabled).then((_) {
-        if (!enabled) {
-          _historyStack.clear();
-        }
-      });
+  Future<void> setShuffle(bool enabled) async {
+    await _ref.read(audioHandlerProvider).setShuffleModeEnabled(enabled);
+  }
 
   Future<void> cycleLoopMode() async {
     final handler = _ref.read(audioHandlerProvider);
@@ -117,24 +85,10 @@ class PlaybackController {
     }
   }
 
-  Future<void> _handleSongStart(int songId) async {
-    _currentSongId = songId;
+  Future<void> _recordSongStart(int songId) async {
     await _ref.read(libraryRepositoryProvider).incrementPlayCount(songId);
     await _ref
         .read(recentlyPlayedControllerProvider.notifier)
         .recordPlay(songId);
-  }
-
-  Future<void> _jumpToSong(int songId) async {
-    final handler = _ref.read(audioHandlerProvider);
-    final queue = await handler.queue.first;
-    final targetIndex =
-        queue.indexWhere((item) => item.extras?['songId'] == songId);
-    if (targetIndex == -1) {
-      await handler.skipToPrevious();
-      return;
-    }
-
-    await handler.playFromQueueIndex(targetIndex);
   }
 }

@@ -12,6 +12,7 @@ import '../../controllers/playback_controller.dart';
 import '../../controllers/song_list_controller.dart';
 import '../../widgets/dialogs/create_playlist_dialog.dart';
 import '../../widgets/player/mini_player.dart';
+import '../../widgets/song/song_actions_menu.dart';
 import '../../widgets/song/song_list_tile.dart';
 import '../../widgets/common/library_states.dart';
 
@@ -425,13 +426,42 @@ class _PlaylistsTab extends ConsumerWidget {
   }
 }
 
-class _TracksTab extends ConsumerWidget {
+class _TracksTab extends ConsumerStatefulWidget {
   const _TracksTab({required this.songs});
 
   final List<Song> songs;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TracksTab> createState() => _TracksTabState();
+}
+
+class _TracksTabState extends ConsumerState<_TracksTab> {
+  late final TextEditingController _searchController;
+  String _query = '';
+  final Set<int> _selectedSongIds = {};
+
+  bool get _isSelecting => _selectedSongIds.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController()
+      ..addListener(() {
+        final value = _searchController.text.trim();
+        if (value != _query) {
+          setState(() => _query = value);
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final songsAsync = ref.watch(songListControllerProvider);
 
     return songsAsync.when(
@@ -440,52 +470,176 @@ class _TracksTab extends ConsumerWidget {
           return const EmptyLibraryMessage();
         }
 
+        final queryLower = _query.toLowerCase();
+        final filteredSongs = queryLower.isEmpty
+            ? songsData
+            : songsData
+                .where((song) =>
+                    song.title.toLowerCase().contains(queryLower) ||
+                    song.artist.toLowerCase().contains(queryLower) ||
+                    song.album.toLowerCase().contains(queryLower))
+                .toList(growable: false);
+
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Search tracks',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => _searchController.clear(),
+                        ),
+                  filled: true,
+                  fillColor: AppColors.surface,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Sorting options coming soon')),
-                      );
-                    },
-                    icon: const Icon(Icons.sort),
-                    label: const Text('Date added'),
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: AppColors.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
+                  if (!_isSelecting)
+                    TextButton.icon(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Sorting options coming soon')),
+                        );
+                      },
+                      icon: const Icon(Icons.sort, size: 18),
+                      label: const Text('Date added'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        backgroundColor: AppColors.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                      ),
+                    )
+                  else
+                    TextButton.icon(
+                      onPressed: _selectedSongIds.clear,
+                      icon: const Icon(Icons.close, size: 18),
+                      label: Text('Clear (${_selectedSongIds.length})'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        backgroundColor: AppColors.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
                       ),
                     ),
-                  ),
                   const Spacer(),
-                  IconButton(
-                    tooltip: 'Shuffle play',
-                    onPressed: () {
-                      ref.read(playbackControllerProvider).playSongs(songsData);
-                    },
-                    icon: const Icon(Icons.shuffle),
-                  ),
-                  IconButton(
-                    tooltip: 'Play all',
-                    onPressed: () {
-                      if (songsData.isNotEmpty) {
+                  if (_isSelecting)
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final selectedSongs = songsData
+                            .where((song) => _selectedSongIds.contains(song.id))
+                            .toList(growable: false);
+                        await showAddToPlaylistSheet(
+                          context,
+                          ref,
+                          selectedSongs,
+                        );
+                        setState(() => _selectedSongIds.clear());
+                      },
+                      icon: const Icon(Icons.playlist_add_check),
+                      label: Text('Add ${_selectedSongIds.length} to playlist'),
+                    )
+                  else ...[
+                    IconButton(
+                      tooltip: 'Shuffle play',
+                      onPressed: () {
                         ref
                             .read(playbackControllerProvider)
                             .playSongs(songsData);
-                      }
-                    },
-                    icon: const Icon(Icons.play_circle_fill),
-                  ),
+                      },
+                      icon: const Icon(Icons.shuffle),
+                    ),
+                    IconButton(
+                      tooltip: 'Play all',
+                      onPressed: () {
+                        if (songsData.isNotEmpty) {
+                          ref
+                              .read(playbackControllerProvider)
+                              .playSongs(songsData);
+                        }
+                      },
+                      icon: const Icon(Icons.play_circle_fill),
+                    ),
+                  ],
                 ],
               ),
             ),
-            Expanded(child: _SongListView(songs: songsData)),
+            const SizedBox(height: 12),
+            if (filteredSongs.isEmpty)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'No tracks match "$_query"',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                  itemCount: filteredSongs.length,
+                  itemBuilder: (context, index) {
+                    final song = filteredSongs[index];
+                    final isFirst = index == 0;
+                    final isLast = index == filteredSongs.length - 1;
+                    return _TrackRow(
+                      song: song,
+                      allSongs: songsData,
+                      isFirst: isFirst,
+                      isLast: isLast,
+                      isSelected: _selectedSongIds.contains(song.id),
+                      selectionMode: _isSelecting,
+                      onTap: () {
+                        if (_isSelecting) {
+                          setState(() {
+                            if (_selectedSongIds.remove(song.id)) {
+                              // removed
+                            } else {
+                              _selectedSongIds.add(song.id);
+                            }
+                          });
+                        } else {
+                          ref
+                              .read(playbackControllerProvider)
+                              .playSong(song, songsData);
+                        }
+                      },
+                      onLongPress: () {
+                        setState(() {
+                          _selectedSongIds.add(song.id);
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
           ],
         );
       },
@@ -510,6 +664,125 @@ class _TracksTab extends ConsumerWidget {
               .loadSongs(force: true),
         );
       },
+    );
+  }
+}
+
+class _TrackRow extends ConsumerWidget {
+  const _TrackRow({
+    required this.song,
+    required this.allSongs,
+    required this.isFirst,
+    required this.isLast,
+    required this.isSelected,
+    required this.selectionMode,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final Song song;
+  final List<Song> allSongs;
+  final bool isFirst;
+  final bool isLast;
+  final bool isSelected;
+  final bool selectionMode;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final borderRadius = BorderRadius.vertical(
+      top: Radius.circular(isFirst ? 24 : 0),
+      bottom: Radius.circular(isLast ? 24 : 0),
+    );
+
+    return Container(
+      margin: EdgeInsets.only(top: isFirst ? 0 : 1),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? AppColors.surface.withOpacity(0.75)
+            : AppColors.surface,
+        borderRadius: borderRadius,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: borderRadius,
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                _ArtworkAvatar(song: song),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        song.artist.isNotEmpty ? song.artist : 'Unknown Artist',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selectionMode)
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (_) => onTap(),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  )
+                else
+                  SongActionsMenu(song: song),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtworkAvatar extends StatelessWidget {
+  const _ArtworkAvatar({required this.song});
+
+  final Song song;
+
+  @override
+  Widget build(BuildContext context) {
+    final artwork = song.artwork;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: artwork != null && artwork.isNotEmpty
+            ? Image.memory(artwork, fit: BoxFit.cover)
+            : Container(
+                color: AppColors.surfaceAlt,
+                alignment: Alignment.center,
+                child: const Icon(Icons.music_note, color: Colors.white70),
+              ),
+      ),
     );
   }
 }

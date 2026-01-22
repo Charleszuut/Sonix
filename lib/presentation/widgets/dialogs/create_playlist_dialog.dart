@@ -5,15 +5,15 @@ import '../../controllers/library/playlist_controller.dart';
 
 Future<bool> showCreatePlaylistDialog(
     BuildContext context, WidgetRef ref) async {
-  final nameController = TextEditingController();
+  var playlistName = '';
   final created = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
         title: const Text('New playlist'),
         content: TextField(
-          controller: nameController,
           autofocus: true,
+          onChanged: (value) => playlistName = value,
           decoration: const InputDecoration(
             hintText: 'Playlist name',
           ),
@@ -25,7 +25,7 @@ Future<bool> showCreatePlaylistDialog(
           ),
           FilledButton(
             onPressed: () {
-              if (nameController.text.trim().isEmpty) {
+              if (playlistName.trim().isEmpty) {
                 return;
               }
               Navigator.of(dialogContext).pop(true);
@@ -40,11 +40,9 @@ Future<bool> showCreatePlaylistDialog(
   if (created == true) {
     await ref
         .read(playlistControllerProvider.notifier)
-        .createPlaylist(nameController.text);
-    nameController.dispose();
+        .createPlaylist(playlistName.trim());
     return true;
   }
 
-  nameController.dispose();
   return false;
 }
